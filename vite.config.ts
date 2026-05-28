@@ -87,3 +87,6 @@
     "vite": "^7.3.1"
   }
 }
+export default defineConfig({
+  base: "/REPOSITORY-NAME/",
+})
