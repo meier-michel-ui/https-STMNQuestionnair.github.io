@@ -1,0 +1,128 @@
+
+-- Roles
+CREATE TYPE public.app_role AS ENUM ('admin', 'user');
+
+CREATE TABLE public.user_roles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role app_role NOT NULL,
+  UNIQUE(user_id, role)
+);
+GRANT SELECT ON public.user_roles TO authenticated;
+GRANT ALL ON public.user_roles TO service_role;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "users read own roles" ON public.user_roles FOR SELECT TO authenticated USING (auth.uid() = user_id);
+
+CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role app_role)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role)
+$$;
+
+-- Implant portfolio config
+CREATE TABLE public.implant_systems (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0
+);
+GRANT SELECT ON public.implant_systems TO anon, authenticated;
+GRANT ALL ON public.implant_systems TO service_role;
+ALTER TABLE public.implant_systems ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read systems" ON public.implant_systems FOR SELECT TO anon, authenticated USING (true);
+
+CREATE TABLE public.implant_diameters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  system_code TEXT NOT NULL REFERENCES public.implant_systems(code) ON DELETE CASCADE,
+  diameter NUMERIC(4,2) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  UNIQUE(system_code, diameter)
+);
+GRANT SELECT ON public.implant_diameters TO anon, authenticated;
+GRANT ALL ON public.implant_diameters TO service_role;
+ALTER TABLE public.implant_diameters ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read diameters" ON public.implant_diameters FOR SELECT TO anon, authenticated USING (true);
+
+CREATE TABLE public.implant_lengths (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  system_code TEXT NOT NULL REFERENCES public.implant_systems(code) ON DELETE CASCADE,
+  length NUMERIC(4,1) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0,
+  UNIQUE(system_code, length)
+);
+GRANT SELECT ON public.implant_lengths TO anon, authenticated;
+GRANT ALL ON public.implant_lengths TO service_role;
+ALTER TABLE public.implant_lengths ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read lengths" ON public.implant_lengths FOR SELECT TO anon, authenticated USING (true);
+
+CREATE TABLE public.implant_valid_combinations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  system_code TEXT NOT NULL REFERENCES public.implant_systems(code) ON DELETE CASCADE,
+  diameter NUMERIC(4,2) NOT NULL,
+  length NUMERIC(4,1) NOT NULL,
+  UNIQUE(system_code, diameter, length)
+);
+GRANT SELECT ON public.implant_valid_combinations TO anon, authenticated;
+GRANT ALL ON public.implant_valid_combinations TO service_role;
+ALTER TABLE public.implant_valid_combinations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "public read combos" ON public.implant_valid_combinations FOR SELECT TO anon, authenticated USING (true);
+
+-- Submissions
+CREATE TABLE public.clinicians (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  full_name TEXT NOT NULL,
+  email TEXT,
+  country TEXT,
+  years_of_experience TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+GRANT INSERT ON public.clinicians TO anon, authenticated;
+GRANT SELECT ON public.clinicians TO authenticated;
+GRANT ALL ON public.clinicians TO service_role;
+ALTER TABLE public.clinicians ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anyone insert clinician" ON public.clinicians FOR INSERT TO anon, authenticated WITH CHECK (true);
+CREATE POLICY "admins read clinicians" ON public.clinicians FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE TABLE public.implant_selections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  clinician_id UUID NOT NULL REFERENCES public.clinicians(id) ON DELETE CASCADE,
+  indication TEXT NOT NULL,
+  implant_system TEXT NOT NULL,
+  diameter NUMERIC(4,2) NOT NULL,
+  length NUMERIC(4,1) NOT NULL,
+  preference TEXT NOT NULL CHECK (preference IN ('regular','occasional','not_preferred')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+GRANT INSERT ON public.implant_selections TO anon, authenticated;
+GRANT SELECT ON public.implant_selections TO authenticated;
+GRANT ALL ON public.implant_selections TO service_role;
+ALTER TABLE public.implant_selections ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anyone insert selection" ON public.implant_selections FOR INSERT TO anon, authenticated WITH CHECK (true);
+CREATE POLICY "admins read selections" ON public.implant_selections FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE TABLE public.indication_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  clinician_id UUID NOT NULL REFERENCES public.clinicians(id) ON DELETE CASCADE,
+  indication TEXT NOT NULL,
+  comment TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+GRANT INSERT ON public.indication_comments TO anon, authenticated;
+GRANT SELECT ON public.indication_comments TO authenticated;
+GRANT ALL ON public.indication_comments TO service_role;
+ALTER TABLE public.indication_comments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anyone insert comment" ON public.indication_comments FOR INSERT TO anon, authenticated WITH CHECK (true);
+CREATE POLICY "admins read comments" ON public.indication_comments FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+CREATE TABLE public.suggested_dimensions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  clinician_id UUID NOT NULL REFERENCES public.clinicians(id) ON DELETE CASCADE,
+  indication TEXT NOT NULL,
+  suggestion_text TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+GRANT INSERT ON public.suggested_dimensions TO anon, authenticated;
+GRANT SELECT ON public.suggested_dimensions TO authenticated;
+GRANT ALL ON public.suggested_dimensions TO service_role;
+ALTER TABLE public.suggested_dimensions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anyone insert suggestion" ON public.suggested_dimensions FOR INSERT TO anon, authenticated WITH CHECK (true);
+CREATE POLICY "admins read suggestions" ON public.suggested_dimensions FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
